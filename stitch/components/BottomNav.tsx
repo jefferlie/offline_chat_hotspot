@@ -6,9 +6,11 @@ import { colors, spacing } from '../app/theme';
 interface BottomNavProps {
   activeTab: 'host' | 'join' | 'chat' | 'users';
   onTabPress: (tab: 'host' | 'join' | 'chat' | 'users') => void;
+  isHost?: boolean;
+  isConnected?: boolean;
 }
 
-const BottomNav: React.FC<BottomNavProps> = ({ activeTab, onTabPress }) => {
+const BottomNav: React.FC<BottomNavProps> = ({ activeTab, onTabPress, isHost, isConnected }) => {
   const insets = useSafeAreaInsets();
 
   const tabs = [
@@ -18,18 +20,23 @@ const BottomNav: React.FC<BottomNavProps> = ({ activeTab, onTabPress }) => {
     { key: 'users' as const, label: 'Users', icon: '👥' },
   ];
 
+  // Если пользователь подключён но не хост — кнопка Host недоступна
+  const isHostDisabled = isConnected && !isHost;
+
   return (
     <View style={[styles.container, { paddingBottom: insets.bottom + spacing.sm }]}>
       {tabs.map((tab) => {
         const isActive = activeTab === tab.key;
+        const isDisabled = tab.key === 'host' && isHostDisabled;
         return (
           <TouchableOpacity
             key={tab.key}
-            style={[styles.tab, isActive && styles.activeTab]}
-            onPress={() => onTabPress(tab.key)}
+            style={[styles.tab, isActive && styles.activeTab, isDisabled && styles.disabledTab]}
+            onPress={() => !isDisabled && onTabPress(tab.key)}
+            disabled={isDisabled}
           >
-            <Text style={[styles.tabIcon, isActive && styles.activeTabIcon]}>{tab.icon}</Text>
-            <Text style={[styles.tabLabel, isActive && styles.activeTabLabel]}>{tab.label}</Text>
+            <Text style={[styles.tabIcon, isActive && styles.activeTabIcon, isDisabled && styles.disabledIcon]}>{tab.icon}</Text>
+            <Text style={[styles.tabLabel, isActive && styles.activeTabLabel, isDisabled && styles.disabledLabel]}>{tab.label}</Text>
           </TouchableOpacity>
         );
       })}
@@ -78,6 +85,13 @@ const styles = StyleSheet.create({
   },
   activeTabLabel: {
     color: colors.primary,
+  },
+  disabledTab: {
+    opacity: 0.35,
+  },
+  disabledIcon: {},
+  disabledLabel: {
+    color: colors['on-surface-variant'],
   },
 });
 

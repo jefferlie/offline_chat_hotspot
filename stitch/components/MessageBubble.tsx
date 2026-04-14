@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, Animated, Image } from 'react-native';
+import { View, Text, StyleSheet, TouchableOpacity, TouchableWithoutFeedback, Animated, Image, Alert } from 'react-native';
 import { Audio, AVPlaybackStatus } from 'expo-av';
 import { colors, spacing, borderRadius } from '../app/theme';
 import { Message } from '../app/types';
@@ -8,9 +8,17 @@ interface MessageBubbleProps {
   message: Message;
   isOwn: boolean;
   showSenderName?: boolean;
+  onEdit?: (messageId: string, currentContent: string) => void;
+  onDelete?: (messageId: string) => void;
 }
 
-const MessageBubble: React.FC<MessageBubbleProps> = ({ message, isOwn, showSenderName = true }) => {
+const MessageBubble: React.FC<MessageBubbleProps> = ({
+  message,
+  isOwn,
+  showSenderName = true,
+  onEdit,
+  onDelete,
+}) => {
   const [sound, setSound] = useState<Audio.Sound | null>(null);
   const [isPlaying, setIsPlaying] = useState(false);
   const [position, setPosition] = useState(0);
@@ -61,7 +69,6 @@ const MessageBubble: React.FC<MessageBubbleProps> = ({ message, isOwn, showSende
 
   const togglePlayback = async () => {
     if (!sound) return;
-
     if (isPlaying) {
       await sound.pauseAsync();
       setIsPlaying(false);
@@ -83,52 +90,97 @@ const MessageBubble: React.FC<MessageBubbleProps> = ({ message, isOwn, showSende
     return date.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true });
   };
 
+  const handleLongPress = () => {
+    if (!isOwn || message.deleted) return;
+    const options: { text: string; onPress: () => void; style?: 'default' | 'destructive' | 'cancel' }[] = [];
+
+    if (message.type === 'text') {
+      options.push({
+        text: 'Edit',
+        onPress: () => onEdit?.(message.id, message.content),
+      });
+    }
+    options.push({
+      text: 'Delete',
+      style: 'destructive',
+      onPress: () => {
+        Alert.alert('Delete message', 'Are you sure?', [
+          { text: 'Cancel', style: 'cancel' },
+          { text: 'Delete', style: 'destructive', onPress: () => onDelete?.(message.id) },
+        ]);
+      },
+    });
+    options.push({ text: 'Cancel', style: 'cancel', onPress: () => {} });
+
+    Alert.alert('Message', undefined, options);
+  };
+
+  if (message.deleted) {
+    return (
+      <Animated.View style={[styles.container, isOwn ? styles.ownContainer : styles.otherContainer, { opacity: fadeAnim }]}>
+        <View style={[styles.bubble, styles.deletedBubble]}>
+          <Text style={styles.deletedText}>Message deleted</Text>
+        </View>
+        <Text style={[styles.timestamp, isOwn ? styles.ownTimestamp : styles.otherTimestamp]}>
+          {formatTimestamp(message.timestamp)}
+        </Text>
+      </Animated.View>
+    );
+  }
+
   return (
     <Animated.View style={[styles.container, isOwn ? styles.ownContainer : styles.otherContainer, { opacity: fadeAnim }]}>
       {showSenderName && !isOwn && (
         <Text style={styles.senderName}>{message.senderName}</Text>
       )}
-      
-      <View style={[styles.bubble, isOwn ? styles.ownBubble : styles.otherBubble]}>
-        {message.type === 'voice' ? (
-          <View style={styles.voiceContainer}>
-            <TouchableOpacity style={styles.playButton} onPress={togglePlayback}>
-              <Text style={styles.playIcon}>{isPlaying ? '⏸' : '▶'}</Text>
-            </TouchableOpacity>
-            <View style={styles.waveformContainer}>
-              {[...Array(15)].map((_, i) => (
-                <View
-                  key={i}
-                  style={[
-                    styles.waveformBar,
-                    {
-                      height: `${30 + Math.random() * 40}%`,
-                      backgroundColor: isOwn ? colors['on-primary'] : colors['on-surface'],
-                    },
-                  ]}
-                />
-              ))}
-            </View>
-            <Text style={[styles.duration, isOwn ? styles.ownText : styles.otherText]}>
-              {message.audioDuration ? formatTime(message.audioDuration * 1000) : '0:00'}
-            </Text>
-          </View>
-        ) : message.type === 'image' && message.imageData ? (
-          <Image
-            source={{ uri: message.imageData }}
-            style={styles.imageContent}
-            resizeMode="cover"
-          />
-        ) : (
-          <Text style={[styles.content, isOwn ? styles.ownText : styles.otherText]}>
-            {message.content}
-          </Text>
-        )}
-      </View>
 
-      <Text style={[styles.timestamp, isOwn ? styles.ownTimestamp : styles.otherTimestamp]}>
-        {formatTimestamp(message.timestamp)}
-      </Text>
+      <TouchableWithoutFeedback onLongPress={handleLongPress} delayLongPress={400}>
+        <View style={[styles.bubble, isOwn ? styles.ownBubble : styles.otherBubble]}>
+          {message.type === 'voice' ? (
+            <View style={styles.voiceContainer}>
+              <TouchableOpacity style={styles.playButton} onPress={togglePlayback}>
+                <Text style={styles.playIcon}>{isPlaying ? '⏸' : '▶'}</Text>
+              </TouchableOpacity>
+              <View style={styles.waveformContainer}>
+                {[...Array(15)].map((_, i) => (
+                  <View
+                    key={i}
+                    style={[
+                      styles.waveformBar,
+                      {
+                        height: `${30 + Math.random() * 40}%`,
+                        backgroundColor: isOwn ? colors['on-primary'] : colors['on-surface'],
+                      },
+                    ]}
+                  />
+                ))}
+              </View>
+              <Text style={[styles.duration, isOwn ? styles.ownText : styles.otherText]}>
+                {message.audioDuration ? formatTime(message.audioDuration * 1000) : '0:00'}
+              </Text>
+            </View>
+          ) : message.type === 'image' && message.imageData ? (
+            <Image
+              source={{ uri: message.imageData }}
+              style={styles.imageContent}
+              resizeMode="cover"
+            />
+          ) : (
+            <Text style={[styles.content, isOwn ? styles.ownText : styles.otherText]}>
+              {message.content}
+            </Text>
+          )}
+        </View>
+      </TouchableWithoutFeedback>
+
+      <View style={[styles.metaRow, isOwn ? styles.ownMetaRow : styles.otherMetaRow]}>
+        {message.edited && (
+          <Text style={styles.editedLabel}>edited · </Text>
+        )}
+        <Text style={[styles.timestamp, isOwn ? styles.ownTimestamp : styles.otherTimestamp]}>
+          {formatTimestamp(message.timestamp)}
+        </Text>
+      </View>
     </Animated.View>
   );
 };
@@ -177,6 +229,19 @@ const styles = StyleSheet.create({
     shadowRadius: 4,
     elevation: 2,
   },
+  deletedBubble: {
+    backgroundColor: 'transparent',
+    borderWidth: 1,
+    borderColor: colors['outline-variant'],
+    borderRadius: borderRadius.md,
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.sm,
+  },
+  deletedText: {
+    fontSize: 13,
+    fontStyle: 'italic',
+    color: colors['on-surface-variant'],
+  },
   content: {
     fontSize: 14,
     lineHeight: 20,
@@ -187,18 +252,31 @@ const styles = StyleSheet.create({
   otherText: {
     color: colors['on-surface'],
   },
+  metaRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginTop: spacing.xs,
+  },
+  ownMetaRow: {
+    justifyContent: 'flex-end',
+  },
+  otherMetaRow: {
+    justifyContent: 'flex-start',
+    marginLeft: spacing.md,
+  },
+  editedLabel: {
+    fontSize: 10,
+    color: colors['on-surface-variant'],
+    fontStyle: 'italic',
+  },
   timestamp: {
     fontSize: 10,
     fontWeight: '500',
-    marginTop: spacing.xs,
   },
   ownTimestamp: {
-    alignSelf: 'flex-end',
     color: colors['on-surface-variant'],
   },
   otherTimestamp: {
-    alignSelf: 'flex-start',
-    marginLeft: spacing.md,
     color: colors['on-surface-variant'],
   },
   voiceContainer: {

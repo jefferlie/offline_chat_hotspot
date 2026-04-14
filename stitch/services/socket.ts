@@ -12,13 +12,15 @@ class WebSocketService {
   private maxReconnectAttempts: number = 5;
   private reconnectDelay: number = 2000;
   private ip: string = '';
+  private intentionalDisconnect: boolean = false;
 
   connect(ip: string, username: string, asHost: boolean = false): Promise<boolean> {
     return new Promise((resolve) => {
       this.username = username;
       this.isHost = asHost;
       this.ip = ip;
-      this.currentRoom = asHost ? 'main' : this.currentRoom;
+      this.intentionalDisconnect = false;
+      this.currentRoom = 'main';
 
       const url = `ws://${ip}:8080`;
 
@@ -41,7 +43,7 @@ class WebSocketService {
 
         this.socket.onclose = () => {
           this.emit('disconnected', {});
-          if (this.reconnectAttempts < this.maxReconnectAttempts) {
+          if (!this.intentionalDisconnect && this.reconnectAttempts < this.maxReconnectAttempts) {
             this.reconnectAttempts++;
             setTimeout(() => {
               this.connect(this.ip, this.username, this.isHost);
@@ -72,20 +74,42 @@ class WebSocketService {
             roomName: message.roomName,
             userName: message.userName,
             members: message.members,
+            history: message.history || [],
+            isHost: message.isHost || false,
           });
           break;
 
         case 'message':
           this.emit('message', {
-            id: `msg-${message.timestamp}`,
+            id: message.id || `msg-${message.timestamp}`,
             senderId: message.userName,
             senderName: message.userName,
             content: message.content,
             type: (message.contentType as 'text' | 'voice' | 'image') || 'text',
             imageData: message.imageData || null,
+            audioUri: message.audioData || null,
+            audioDuration: message.audioDuration || null,
             timestamp: message.timestamp,
             roomId: this.currentRoom,
           });
+          break;
+
+        case 'messageEdited':
+          this.emit('message_edited', {
+            messageId: message.messageId,
+            newContent: message.newContent,
+          });
+          break;
+
+        case 'messageDeleted':
+          this.emit('message_deleted', {
+            messageId: message.messageId,
+          });
+          break;
+
+        case 'kicked':
+          this.intentionalDisconnect = true;
+          this.emit('kicked', { by: message.by });
           break;
 
         case 'private':
@@ -128,7 +152,7 @@ class WebSocketService {
     }
   }
 
-  sendMessage(content: string, type: 'text' | 'voice' | 'image' = 'text', audioUri?: string, audioDuration?: number) {
+  sendMessage(content: string, type: 'text' | 'voice' | 'image' = 'text') {
     this.send({
       type: 'message',
       content,
@@ -147,7 +171,14 @@ class WebSocketService {
   }
 
   sendVoiceMessage(audioUri: string, duration: number) {
-    this.sendMessage('Voice message', 'voice', audioUri, duration);
+    this.send({
+      type: 'message',
+      content: 'Voice message',
+      contentType: 'voice',
+      audioData: audioUri,
+      audioDuration: duration,
+      roomName: this.currentRoom,
+    });
   }
 
   sendImageMessage(imageData: string) {
@@ -156,6 +187,31 @@ class WebSocketService {
       content: '📷 Image',
       contentType: 'image',
       imageData,
+      roomName: this.currentRoom,
+    });
+  }
+
+  editMessage(messageId: string, newContent: string) {
+    this.send({
+      type: 'editMessage',
+      messageId,
+      newContent,
+      roomName: this.currentRoom,
+    });
+  }
+
+  deleteMessage(messageId: string) {
+    this.send({
+      type: 'deleteMessage',
+      messageId,
+      roomName: this.currentRoom,
+    });
+  }
+
+  kickUser(targetUser: string) {
+    this.send({
+      type: 'kickUser',
+      targetUser,
       roomName: this.currentRoom,
     });
   }
@@ -181,6 +237,7 @@ class WebSocketService {
   }
 
   leave() {
+    this.intentionalDisconnect = true;
     this.send({ type: 'leave' });
     if (this.socket) {
       this.socket.close();
@@ -202,6 +259,10 @@ class WebSocketService {
 
   getIP(): string {
     return this.ip;
+  }
+
+  getUsername(): string {
+    return this.username;
   }
 
   on(event: string, callback: EventCallback) {

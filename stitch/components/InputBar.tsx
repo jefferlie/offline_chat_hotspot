@@ -11,6 +11,7 @@ interface InputBarProps {
   onSendImage: (imageData: string) => void;
   onTyping?: (isTyping: boolean) => void;
   placeholder?: string;
+  initialText?: string;
 }
 
 const InputBar: React.FC<InputBarProps> = ({
@@ -19,8 +20,15 @@ const InputBar: React.FC<InputBarProps> = ({
   onSendImage,
   onTyping,
   placeholder = 'Type a message...',
+  initialText,
 }) => {
   const [text, setText] = useState('');
+
+  React.useEffect(() => {
+    if (initialText !== undefined) {
+      setText(initialText);
+    }
+  }, [initialText]);
   const [isRecording, setIsRecording] = useState(false);
   const [recording, setRecording] = useState<Audio.Recording | null>(null);
   const [recordingDuration, setRecordingDuration] = useState(0);
@@ -114,7 +122,14 @@ const InputBar: React.FC<InputBarProps> = ({
       });
 
       if (uri && duration > 0) {
-        onSendVoice(uri, duration);
+        try {
+          const base64 = await FileSystem.readAsStringAsync(uri, {
+            encoding: FileSystem.EncodingType.Base64,
+          });
+          onSendVoice(`data:audio/m4a;base64,${base64}`, duration);
+        } catch {
+          onSendVoice(uri, duration);
+        }
       }
     } catch (error) {
       console.error('Failed to stop recording:', error);

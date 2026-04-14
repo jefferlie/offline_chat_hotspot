@@ -22,7 +22,6 @@ function getLocalIP() {
 function broadcastRoom(roomName, message, excludeWs = null) {
   const room = rooms.get(roomName);
   if (!room) return;
-  
   room.members.forEach((ws) => {
     if (ws !== excludeWs && ws.readyState === WebSocket.OPEN) {
       ws.send(JSON.stringify(message));
@@ -30,73 +29,173 @@ function broadcastRoom(roomName, message, excludeWs = null) {
   });
 }
 
+function sendToUser(userName, message) {
+  for (const [ws, client] of clients) {
+    if (client.userName === userName && ws.readyState === WebSocket.OPEN) {
+      ws.send(JSON.stringify(message));
+      break;
+    }
+  }
+}
+
 function handleMessage(ws, data) {
   try {
     const message = JSON.parse(data);
-    const { type, roomName, userName, content, targetUser, contentType, imageData } = message;
+    const { type, roomName, userName, content, targetUser, contentType, imageData, audioData, audioDuration, messageId, newContent } = message;
 
     switch (type) {
-      case 'join':
+      case 'join': {
         if (!rooms.has(roomName)) {
-          rooms.set(roomName, { members: new Set(), messages: [] });
+          rooms.set(roomName, { members: new Set(), messages: [], host: userName });
         }
         const room = rooms.get(roomName);
+
+        // Если пользователь уже в комнате (реконнект) — убрать старый ws
+        for (const [oldWs, client] of clients) {
+          if (client.userName === userName && client.roomName === roomName && oldWs !== ws) {
+            room.members.delete(oldWs);
+            clients.delete(oldWs);
+            break;
+          }
+        }
+
+        const alreadyInRoom = Array.from(room.members).some(
+          (w) => clients.get(w)?.userName === userName
+        );
+
         room.members.add(ws);
         clients.set(ws, { roomName, userName });
-        
+
+        // Отправить текущий список участников + историю сообщений
         ws.send(JSON.stringify({
           type: 'joined',
           roomName,
           userName,
-          members: Array.from(room.members).map(w => clients.get(w)?.userName).filter(Boolean)
+          members: Array.from(room.members).map(w => clients.get(w)?.userName).filter(Boolean),
+          history: room.messages,
+          isHost: room.host === userName,
         }));
-        
-        broadcastRoom(roomName, {
-          type: 'userJoined',
-          userName,
-          timestamp: Date.now()
-        }, ws);
-        break;
 
-      case 'message':
-        const client = clients.get(ws);
-        if (client) {
-          const msg = {
-            type: 'message',
-            userName: client.userName,
-            content,
-            contentType: contentType || 'text',
-            imageData: imageData || null,
-            timestamp: Date.now()
-          };
-          broadcastRoom(client.roomName, msg, ws);
+        // Уведомить остальных только если это новый вход (не реконнект)
+        if (!alreadyInRoom) {
+          broadcastRoom(roomName, {
+            type: 'userJoined',
+            userName,
+            timestamp: Date.now(),
+          }, ws);
         }
         break;
+      }
 
-      case 'private':
-        const sender = clients.get(ws);
-        if (sender) {
-          for (const [w, c] of clients) {
-            if (c.userName === targetUser && w.readyState === WebSocket.OPEN) {
-              w.send(JSON.stringify({
-                type: 'private',
-                from: sender.userName,
-                content,
-                timestamp: Date.now()
-              }));
-              break;
-            }
+      case 'message': {
+        const client = clients.get(ws);
+        if (!client) break;
+        const room = rooms.get(client.roomName);
+        if (!room) break;
+
+        const msgId = `msg-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
+        const msg = {
+          type: 'message',
+          id: msgId,
+          userName: client.userName,
+          content,
+          contentType: contentType || 'text',
+          imageData: imageData || null,
+            audioData: audioData || null,
+            audioDuration: audioDuration || null,
+          timestamp: Date.now(),
+        };
+        room.messages.push(msg);
+        broadcastRoom(client.roomName, msg, ws);
+        break;
+      }
+
+      case 'editMessage': {
+        const client = clients.get(ws);
+        if (!client) break;
+        const room = rooms.get(client.roomName);
+        if (!room) break;
+
+        const msgIndex = room.messages.findIndex(m => m.id === messageId);
+        if (msgIndex === -1) break;
+        if (room.messages[msgIndex].userName !== client.userName) break;
+
+        room.messages[msgIndex].content = newContent;
+        room.messages[msgIndex].edited = true;
+
+        broadcastRoom(client.roomName, {
+          type: 'messageEdited',
+          messageId,
+          newContent,
+        });
+        break;
+      }
+
+      case 'deleteMessage': {
+        const client = clients.get(ws);
+        if (!client) break;
+        const room = rooms.get(client.roomName);
+        if (!room) break;
+
+        const msgIndex = room.messages.findIndex(m => m.id === messageId);
+        if (msgIndex === -1) break;
+        if (room.messages[msgIndex].userName !== client.userName) break;
+
+        room.messages[msgIndex].deleted = true;
+
+        broadcastRoom(client.roomName, {
+          type: 'messageDeleted',
+          messageId,
+        });
+        break;
+      }
+
+      case 'kickUser': {
+        const client = clients.get(ws);
+        if (!client) break;
+        const room = rooms.get(client.roomName);
+        if (!room) break;
+        if (room.host !== client.userName) break; // только хост может кикать
+
+        sendToUser(targetUser, { type: 'kicked', by: client.userName });
+
+        // Отключить кикнутого
+        for (const [targetWs, targetClient] of clients) {
+          if (targetClient.userName === targetUser && targetClient.roomName === client.roomName) {
+            broadcastRoom(client.roomName, {
+              type: 'userLeft',
+              userName: targetUser,
+              timestamp: Date.now(),
+            });
+            room.members.delete(targetWs);
+            clients.delete(targetWs);
+            targetWs.close();
+            break;
           }
         }
         break;
+      }
 
-      case 'getRooms':
+      case 'private': {
+        const sender = clients.get(ws);
+        if (!sender) break;
+        sendToUser(targetUser, {
+          type: 'private',
+          from: sender.userName,
+          content,
+          timestamp: Date.now(),
+        });
+        break;
+      }
+
+      case 'getRooms': {
         const roomList = Array.from(rooms.entries()).map(([name, r]) => ({
           name,
-          members: r.members.size
+          members: r.members.size,
         }));
         ws.send(JSON.stringify({ type: 'rooms', list: roomList }));
         break;
+      }
 
       case 'leave':
         handleDisconnect(ws);
@@ -117,7 +216,7 @@ function handleDisconnect(ws) {
       broadcastRoom(roomName, {
         type: 'userLeft',
         userName,
-        timestamp: Date.now()
+        timestamp: Date.now(),
       });
       if (room.members.size === 0) {
         rooms.delete(roomName);

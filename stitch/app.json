@@ -14,7 +14,7 @@
     },
     "ios": {
       "supportsTablet": true,
-      "bundleIdentifier": "com.fluids.chat",
+      "bundleIdentifier": "com.fluids.chatoffline",
       "infoPlist": {
         "NSMicrophoneUsageDescription": "This app requires access to your microphone to record voice messages."
       }
@@ -31,7 +31,8 @@
         "android.permission.ACCESS_WIFI_STATE",
         "android.permission.INTERNET",
         "android.permission.CAMERA",
-        "android.permission.READ_EXTERNAL_STORAGE"
+        "android.permission.READ_EXTERNAL_STORAGE",
+        "android.permission.MODIFY_AUDIO_SETTINGS"
       ]
     },
     "web": {
@@ -51,6 +52,11 @@
           "cameraPermission": "Allow Fluid Chat to take photos to share images."
         }
       ]
-    ]
+    ],
+    "extra": {
+      "eas": {
+        "projectId": "2cf34615-f8e0-4c79-aa74-a3962ede24f7"
+      }
+    }
   }
 }

@@ -1,5 +1,5 @@
-import React, { useRef, useEffect } from 'react';
-import { View, Text, StyleSheet, FlatList, KeyboardAvoidingView, Platform } from 'react-native';
+import React, { useRef, useEffect, useState } from 'react';
+import { View, Text, StyleSheet, FlatList, KeyboardAvoidingView, Platform, Alert } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { colors, spacing } from '../app/theme';
@@ -18,15 +18,21 @@ type ChatScreenProps = {
 const ChatScreen: React.FC<ChatScreenProps> = ({ navigation }) => {
   const insets = useSafeAreaInsets();
   const flatListRef = useRef<FlatList>(null);
+  const [editingMessage, setEditingMessage] = useState<{ id: string; content: string } | null>(null);
+
   const {
     messages,
     users,
     currentUser,
+    isHost,
+    isConnected,
     typingUsers,
     sendMessage,
     sendVoiceMessage,
     sendImageMessage,
     setTyping,
+    editMessage,
+    deleteMessage,
   } = useChat();
 
   useEffect(() => {
@@ -37,25 +43,22 @@ const ChatScreen: React.FC<ChatScreenProps> = ({ navigation }) => {
     }
   }, [messages.length]);
 
-  const formatDate = (timestamp: number) => {
-    const date = new Date(timestamp);
-    const today = new Date();
-    if (date.toDateString() === today.toDateString()) {
-      return 'Today';
+  const handleSend = (content: string) => {
+    if (editingMessage) {
+      editMessage(editingMessage.id, content);
+      setEditingMessage(null);
+    } else {
+      sendMessage(content);
     }
-    return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
   };
 
-  const groupedMessages = messages.reduce((acc: { date: string; data: Message[] }[], message) => {
-    const messageDate = new Date(message.timestamp).toDateString();
-    const lastGroup = acc[acc.length - 1];
-    if (lastGroup && lastGroup.date === messageDate) {
-      lastGroup.data.push(message);
-    } else {
-      acc.push({ date: messageDate, data: [message] });
-    }
-    return acc;
-  }, []);
+  const handleEditRequest = (messageId: string, currentContent: string) => {
+    setEditingMessage({ id: messageId, content: currentContent });
+  };
+
+  const handleDeleteRequest = (messageId: string) => {
+    deleteMessage(messageId);
+  };
 
   const renderMessage = ({ item }: { item: Message }) => {
     const isOwn = item.senderId === currentUser?.id;
@@ -67,19 +70,9 @@ const ChatScreen: React.FC<ChatScreenProps> = ({ navigation }) => {
         message={item}
         isOwn={isOwn}
         showSenderName={showSenderName}
+        onEdit={handleEditRequest}
+        onDelete={handleDeleteRequest}
       />
-    );
-  };
-
-  const renderDateHeader = (date: string) => {
-    const displayDate = new Date(date).toDateString() === new Date().toDateString() 
-      ? 'Today' 
-      : new Date(date).toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
-    
-    return (
-      <View style={styles.dateHeader}>
-        <Text style={styles.dateText}>{displayDate}</Text>
-      </View>
     );
   };
 
@@ -89,9 +82,7 @@ const ChatScreen: React.FC<ChatScreenProps> = ({ navigation }) => {
         <View style={styles.emptyState}>
           <Text style={styles.emptyIcon}>💬</Text>
           <Text style={styles.emptyTitle}>No messages yet</Text>
-          <Text style={styles.emptySubtitle}>
-            Start the conversation!
-          </Text>
+          <Text style={styles.emptySubtitle}>Start the conversation!</Text>
         </View>
       );
     }
@@ -148,16 +139,25 @@ const ChatScreen: React.FC<ChatScreenProps> = ({ navigation }) => {
         {renderContent()}
       </View>
 
+      {editingMessage && (
+        <View style={styles.editingBanner}>
+          <Text style={styles.editingText}>Editing message</Text>
+          <Text style={styles.editingCancel} onPress={() => setEditingMessage(null)}>Cancel</Text>
+        </View>
+      )}
+
       <View style={{ paddingBottom: insets.bottom }}>
         <InputBar
-          onSendMessage={sendMessage}
+          onSendMessage={handleSend}
           onSendVoice={sendVoiceMessage}
           onSendImage={sendImageMessage}
           onTyping={setTyping}
+          placeholder={editingMessage ? 'Edit message...' : 'Type a message...'}
+          initialText={editingMessage?.content}
         />
       </View>
 
-      <BottomNav activeTab="chat" onTabPress={handleTabPress} />
+      <BottomNav activeTab="chat" onTabPress={handleTabPress} isHost={isHost} isConnected={isConnected} />
     </KeyboardAvoidingView>
   );
 };
@@ -174,20 +174,6 @@ const styles = StyleSheet.create({
   messageList: {
     paddingTop: spacing.md,
     paddingBottom: spacing.lg,
-  },
-  dateHeader: {
-    alignItems: 'center',
-    marginVertical: spacing.lg,
-  },
-  dateText: {
-    fontSize: 11,
-    fontWeight: '600',
-    color: colors['on-surface-variant'],
-    backgroundColor: colors['surface-container-high'],
-    paddingHorizontal: spacing.md,
-    paddingVertical: spacing.xs,
-    borderRadius: 12,
-    overflow: 'hidden',
   },
   typingIndicator: {
     paddingHorizontal: spacing.md,
@@ -216,6 +202,25 @@ const styles = StyleSheet.create({
   },
   emptySubtitle: {
     fontSize: 14,
+    color: colors['on-surface-variant'],
+  },
+  editingBanner: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    backgroundColor: colors['surface-container-high'],
+    paddingHorizontal: spacing.lg,
+    paddingVertical: spacing.sm,
+    borderTopWidth: 1,
+    borderTopColor: colors.primary,
+  },
+  editingText: {
+    fontSize: 13,
+    color: colors.primary,
+    fontWeight: '600',
+  },
+  editingCancel: {
+    fontSize: 13,
     color: colors['on-surface-variant'],
   },
 });

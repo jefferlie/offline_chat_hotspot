@@ -1,5 +1,5 @@
 import React from 'react';
-import { View, Text, StyleSheet, FlatList } from 'react-native';
+import { View, Text, StyleSheet, FlatList, TouchableOpacity, Alert } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { colors, spacing, borderRadius } from '../app/theme';
@@ -7,7 +7,6 @@ import { RootStackParamList, User } from '../app/types';
 import useChat from '../hooks/useChat';
 import socketService from '../services/socket';
 import TopBar from '../components/TopBar';
-import UserItem from '../components/UserItem';
 import BottomNav from '../components/BottomNav';
 
 type UsersScreenProps = {
@@ -16,11 +15,45 @@ type UsersScreenProps = {
 
 const UsersScreen: React.FC<UsersScreenProps> = ({ navigation }) => {
   const insets = useSafeAreaInsets();
-  const { users, currentUser } = useChat();
+  const { users, currentUser, isHost, isConnected, kickUser } = useChat();
 
-  const renderUser = ({ item }: { item: User }) => (
-    <UserItem user={item} />
-  );
+  const handleKick = (user: User) => {
+    Alert.alert(
+      'Kick user',
+      `Remove ${user.username} from the chat?`,
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Kick',
+          style: 'destructive',
+          onPress: () => kickUser(user.username),
+        },
+      ]
+    );
+  };
+
+  const renderUser = ({ item }: { item: User }) => {
+    const isCurrentUser = item.id === currentUser?.id;
+    return (
+      <View style={styles.userRow}>
+        <View style={styles.avatar}>
+          <Text style={styles.avatarText}>{item.username.charAt(0).toUpperCase()}</Text>
+        </View>
+        <View style={styles.userInfo}>
+          <Text style={styles.username}>
+            {item.username}
+            {isCurrentUser ? ' (you)' : ''}
+          </Text>
+          <Text style={styles.status}>{item.status || 'Online'}</Text>
+        </View>
+        {isHost && !isCurrentUser && (
+          <TouchableOpacity style={styles.kickButton} onPress={() => handleKick(item)}>
+            <Text style={styles.kickButtonText}>Kick</Text>
+          </TouchableOpacity>
+        )}
+      </View>
+    );
+  };
 
   const handleTabPress = (tab: 'host' | 'join' | 'chat' | 'users') => {
     switch (tab) {
@@ -52,9 +85,9 @@ const UsersScreen: React.FC<UsersScreenProps> = ({ navigation }) => {
             <Text style={styles.bentoSubtitle}>Connected to main</Text>
           </View>
           <View style={styles.bentoCard}>
-            <Text style={styles.bentoIcon}>📡</Text>
-            <Text style={styles.bentoTitle}>Range</Text>
-            <Text style={styles.bentoSubtitle}>Scanning 50m radius</Text>
+            <Text style={styles.bentoIcon}>👥</Text>
+            <Text style={styles.bentoTitle}>{users.length} Online</Text>
+            <Text style={styles.bentoSubtitle}>{isHost ? 'You are host' : 'Member'}</Text>
           </View>
         </View>
 
@@ -63,9 +96,7 @@ const UsersScreen: React.FC<UsersScreenProps> = ({ navigation }) => {
             <View style={styles.emptyState}>
               <Text style={styles.emptyIcon}>👥</Text>
               <Text style={styles.emptyTitle}>No users online</Text>
-              <Text style={styles.emptySubtitle}>
-                Invite others to join the chat
-              </Text>
+              <Text style={styles.emptySubtitle}>Invite others to join the chat</Text>
             </View>
           ) : (
             <FlatList
@@ -79,7 +110,7 @@ const UsersScreen: React.FC<UsersScreenProps> = ({ navigation }) => {
         </View>
       </View>
 
-      <BottomNav activeTab="users" onTabPress={handleTabPress} />
+      <BottomNav activeTab="users" onTabPress={handleTabPress} isHost={isHost} isConnected={isConnected} />
     </View>
   );
 };
@@ -125,6 +156,51 @@ const styles = StyleSheet.create({
   },
   userList: {
     paddingBottom: spacing.xxl,
+  },
+  userRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: spacing.md,
+    borderBottomWidth: 1,
+    borderBottomColor: `${colors['outline-variant']}20`,
+  },
+  avatar: {
+    width: 42,
+    height: 42,
+    borderRadius: 21,
+    backgroundColor: colors.primary,
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginRight: spacing.md,
+  },
+  avatarText: {
+    color: colors['on-primary'],
+    fontWeight: '700',
+    fontSize: 16,
+  },
+  userInfo: {
+    flex: 1,
+  },
+  username: {
+    fontSize: 15,
+    fontWeight: '600',
+    color: colors['on-surface'],
+  },
+  status: {
+    fontSize: 12,
+    color: colors['on-surface-variant'],
+    marginTop: 2,
+  },
+  kickButton: {
+    backgroundColor: '#ff4444',
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.sm,
+    borderRadius: borderRadius.sm,
+  },
+  kickButtonText: {
+    color: '#fff',
+    fontSize: 13,
+    fontWeight: '600',
   },
   emptyState: {
     flex: 1,

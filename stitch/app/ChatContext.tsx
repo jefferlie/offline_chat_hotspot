@@ -20,6 +20,9 @@ interface UseChatReturn {
   setTyping: (isTyping: boolean) => void;
   leaveChat: () => void;
   clearError: () => void;
+  kickUser: (username: string) => void;
+  editMessage: (messageId: string, newContent: string) => void;
+  deleteMessage: (messageId: string) => void;
 }
 
 const ChatContext = createContext<UseChatReturn | null>(null);
@@ -46,9 +49,37 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
       setMessages((prev) => [...prev, message]);
     };
 
-    const onJoined = (data: { roomName: string; userName: string; members: string[] }) => {
+    const onJoined = (data: {
+      roomName: string;
+      userName: string;
+      members: string[];
+      history: any[];
+      isHost: boolean;
+    }) => {
       setIsConnected(true);
       setServerIP(socketService.getIP());
+
+      // Загрузить историю сообщений
+      if (data.history && data.history.length > 0) {
+        const historyMessages: Message[] = data.history
+          .filter((m) => !m.deleted)
+          .map((m) => ({
+            id: m.id || `msg-${m.timestamp}`,
+            senderId: m.userName,
+            senderName: m.userName,
+            content: m.content,
+            type: (m.contentType as 'text' | 'voice' | 'image') || 'text',
+            imageData: m.imageData || undefined,
+            audioUri: m.audioData || undefined,
+            audioDuration: m.audioDuration || undefined,
+            timestamp: m.timestamp,
+            roomId: data.roomName,
+            edited: m.edited || false,
+            deleted: m.deleted || false,
+          }));
+        setMessages(historyMessages);
+      }
+
       const memberUsers: User[] = data.members.map((name: string) => ({
         id: name,
         username: name,
@@ -57,6 +88,10 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
         joinedAt: Date.now(),
       }));
       setUsers(memberUsers);
+
+      if (data.isHost) {
+        setIsHost(true);
+      }
     };
 
     const onUserJoined = (user: User) => {
@@ -68,6 +103,32 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
     const onUserLeft = (userId: string) => {
       setUsers((prev) => prev.filter((u) => u.id !== userId));
+    };
+
+    const onMessageEdited = ({ messageId, newContent }: { messageId: string; newContent: string }) => {
+      setMessages((prev) =>
+        prev.map((m) =>
+          m.id === messageId ? { ...m, content: newContent, edited: true } : m
+        )
+      );
+    };
+
+    const onMessageDeleted = ({ messageId }: { messageId: string }) => {
+      setMessages((prev) =>
+        prev.map((m) =>
+          m.id === messageId ? { ...m, deleted: true } : m
+        )
+      );
+    };
+
+    const onKicked = () => {
+      setMessages([]);
+      setUsers([]);
+      setCurrentUser(null);
+      setIsConnected(false);
+      setIsHost(false);
+      setServerIP(null);
+      setError('You were kicked by the host.');
     };
 
     const onRoomsList = (rooms: { name: string; members: number }[]) => {
@@ -83,6 +144,9 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
     socketService.on('joined', onJoined);
     socketService.on('user_joined', onUserJoined);
     socketService.on('user_left', onUserLeft);
+    socketService.on('message_edited', onMessageEdited);
+    socketService.on('message_deleted', onMessageDeleted);
+    socketService.on('kicked', onKicked);
     socketService.on('rooms_list', onRoomsList);
     socketService.on('disconnected', onDisconnected);
 
@@ -94,6 +158,9 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
       socketService.off('joined', onJoined);
       socketService.off('user_joined', onUserJoined);
       socketService.off('user_left', onUserLeft);
+      socketService.off('message_edited', onMessageEdited);
+      socketService.off('message_deleted', onMessageDeleted);
+      socketService.off('kicked', onKicked);
       socketService.off('rooms_list', onRoomsList);
       socketService.off('disconnected', onDisconnected);
     };
@@ -156,7 +223,7 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
     if (!content.trim()) return;
 
     const message: Message = {
-      id: `msg-${Date.now()}`,
+      id: `msg-${Date.now()}-local`,
       senderId: currentUserRef.current?.id || 'unknown',
       senderName: currentUserRef.current?.username || 'Unknown',
       content,
@@ -221,6 +288,28 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
     setError(null);
   }, []);
 
+  const kickUser = useCallback((username: string) => {
+    socketService.kickUser(username);
+  }, []);
+
+  const editMessage = useCallback((messageId: string, newContent: string) => {
+    setMessages((prev) =>
+      prev.map((m) =>
+        m.id === messageId ? { ...m, content: newContent, edited: true } : m
+      )
+    );
+    socketService.editMessage(messageId, newContent);
+  }, []);
+
+  const deleteMessage = useCallback((messageId: string) => {
+    setMessages((prev) =>
+      prev.map((m) =>
+        m.id === messageId ? { ...m, deleted: true } : m
+      )
+    );
+    socketService.deleteMessage(messageId);
+  }, []);
+
   return (
     <ChatContext.Provider
       value={{
@@ -241,6 +330,9 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
         setTyping,
         leaveChat,
         clearError,
+        kickUser,
+        editMessage,
+        deleteMessage,
       }}
     >
       {children}

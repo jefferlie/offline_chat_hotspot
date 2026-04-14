@@ -18,6 +18,8 @@ export interface Message {
   imageData?: string;
   timestamp: number;
   roomId: string;
+  edited?: boolean;
+  deleted?: boolean;
 }
 
 export interface Room {
