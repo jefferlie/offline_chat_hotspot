@@ -236,6 +236,15 @@ class WebSocketService {
     this.send({ type: 'getRooms' });
   }
 
+  registerPushToken(pushToken: string) {
+    if (!pushToken) return;
+    this.send({
+      type: 'registerPushToken',
+      pushToken,
+      roomName: this.currentRoom,
+    });
+  }
+
   leave() {
     this.intentionalDisconnect = true;
     this.send({ type: 'leave' });

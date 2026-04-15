@@ -95,6 +95,19 @@ Voice messages are recorded using expo-av and can be played back directly in the
 - All devices must be on the same local Wi-Fi network
 - Firewall should allow connections on port 8080
 
+## iPhone Push (Xcode)
+
+To receive push notifications on iPhone when building with Xcode:
+
+1. Generate iOS project if needed: `npx expo prebuild`
+2. Open `ios/*.xcworkspace` in Xcode
+3. In your target, add capability **Push Notifications**
+4. Add capability **Background Modes** and enable **Remote notifications**
+5. Configure Signing (Team + valid Bundle Identifier)
+6. Build and install on a real iPhone (simulator does not receive APNs push)
+
+For production push delivery, configure APNs key/cert in Expo/EAS credentials.
+
 ## Design System
 
 The app follows the "Fluid Communication Protocol" design system:

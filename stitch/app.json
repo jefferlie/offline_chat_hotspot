@@ -16,7 +16,10 @@
       "supportsTablet": true,
       "bundleIdentifier": "com.fluids.chatoffline",
       "infoPlist": {
-        "NSMicrophoneUsageDescription": "This app requires access to your microphone to record voice messages."
+        "NSMicrophoneUsageDescription": "This app requires access to your microphone to record voice messages.",
+        "UIBackgroundModes": [
+          "remote-notification"
+        ]
       }
     },
     "android": {
@@ -50,6 +53,13 @@
         {
           "photosPermission": "Allow Fluid Chat to access your photos to share images.",
           "cameraPermission": "Allow Fluid Chat to take photos to share images."
+        }
+      ],
+      [
+        "expo-notifications",
+        {
+          "icon": "./assets/icon.png",
+          "color": "#0058bc"
         }
       ]
     ],

@@ -1,7 +1,8 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { View, Text, StyleSheet, TouchableOpacity, TextInput, KeyboardAvoidingView, Platform, Alert } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { colors, spacing, borderRadius, shadows } from '../app/theme';
 import { RootStackParamList } from '../app/types';
 
@@ -10,32 +11,80 @@ type HomeScreenProps = {
 };
 
 const HomeScreen: React.FC<HomeScreenProps> = ({ navigation }) => {
+  const LAST_USERNAME_KEY = 'fluid_chat:last_username';
+  const LAST_SERVER_IP_KEY = 'fluid_chat:last_server_ip';
+
   const insets = useSafeAreaInsets();
   const [username, setUsername] = useState('');
   const [ipAddress, setIpAddress] = useState('');
 
-  const handleHost = () => {
-    if (!username.trim()) {
+  useEffect(() => {
+    let mounted = true;
+
+    const loadSavedInputs = async () => {
+      try {
+        const values = await AsyncStorage.multiGet([LAST_USERNAME_KEY, LAST_SERVER_IP_KEY]);
+        const savedUsername = values.find(([key]) => key === LAST_USERNAME_KEY)?.[1] || '';
+        const savedIp = values.find(([key]) => key === LAST_SERVER_IP_KEY)?.[1] || '';
+
+        if (!mounted) return;
+        if (savedUsername) setUsername(savedUsername);
+        if (savedIp) setIpAddress(savedIp);
+      } catch (error) {
+        console.error('Failed to load saved inputs:', error);
+      }
+    };
+
+    loadSavedInputs();
+
+    return () => {
+      mounted = false;
+    };
+  }, []);
+
+  const persistInputs = async (name: string, ip: string) => {
+    try {
+      await AsyncStorage.multiSet([
+        [LAST_USERNAME_KEY, name],
+        [LAST_SERVER_IP_KEY, ip],
+      ]);
+    } catch (error) {
+      console.error('Failed to save inputs:', error);
+    }
+  };
+
+  const handleHost = async () => {
+    const normalizedUsername = username.trim();
+    const normalizedIp = ipAddress.trim();
+
+    if (!normalizedUsername) {
       Alert.alert('Required', 'Please enter your name');
       return;
     }
-    if (!ipAddress.trim()) {
+    if (!normalizedIp) {
       Alert.alert('Required', 'Please enter your local IP to host the chat');
       return;
     }
-    navigation.navigate('Host', { username: username.trim(), serverIP: ipAddress.trim() });
+
+    await persistInputs(normalizedUsername, normalizedIp);
+    navigation.navigate('Host', { username: normalizedUsername, serverIP: normalizedIp });
   };
 
-  const handleJoin = () => {
-    if (!username.trim()) {
+  const handleJoin = async () => {
+    const normalizedUsername = username.trim();
+    const normalizedIp = ipAddress.trim();
+
+    if (!normalizedUsername) {
       Alert.alert('Required', 'Please enter your name');
       return;
     }
-    if (!ipAddress.trim()) {
+    if (!normalizedIp) {
       Alert.alert('Required', 'Please enter the host IP address');
       return;
     }
-    navigation.navigate('Join', { username: username.trim(), serverIP: ipAddress.trim() });
+
+    await persistInputs(normalizedUsername, normalizedIp);
+    navigation.navigate('Join', { username: normalizedUsername, serverIP: normalizedIp });
   };
 
   return (

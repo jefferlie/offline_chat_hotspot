@@ -1,6 +1,7 @@
 import React, { createContext, useContext, useState, useEffect, useCallback, useRef } from 'react';
 import socketService from '../services/socket';
 import { Message, User } from '../app/types';
+import { getExpoPushToken, initNotifications, notifyIncomingMessage } from '../services/notifications';
 
 interface UseChatReturn {
   messages: Message[];
@@ -39,14 +40,60 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [error, setError] = useState<string | null>(null);
   const typingTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const currentUserRef = useRef<User | null>(null);
+  const notificationsEnabledRef = useRef(false);
+  const expoPushTokenRef = useRef<string | null>(null);
 
   useEffect(() => {
     currentUserRef.current = currentUser;
   }, [currentUser]);
 
+  const registerPushTokenIfPossible = useCallback(() => {
+    const token = expoPushTokenRef.current;
+    if (!token) return;
+    if (!socketService.isConnected()) return;
+    socketService.registerPushToken(token);
+  }, []);
+
+  useEffect(() => {
+    let mounted = true;
+
+    const setupNotifications = async () => {
+      const enabled = await initNotifications();
+      if (mounted) {
+        notificationsEnabledRef.current = enabled;
+      }
+
+      if (!enabled) return;
+
+      const token = await getExpoPushToken();
+      if (mounted && token) {
+        expoPushTokenRef.current = token;
+      }
+
+      registerPushTokenIfPossible();
+    };
+
+    setupNotifications();
+
+    return () => {
+      mounted = false;
+    };
+  }, [registerPushTokenIfPossible]);
+
   useEffect(() => {
     const onMessage = (message: Message) => {
       setMessages((prev) => [...prev, message]);
+
+      const myId = currentUserRef.current?.id;
+      if (notificationsEnabledRef.current && message.senderId !== myId) {
+        const preview =
+          message.type === 'voice'
+            ? 'Voice message'
+            : message.type === 'image'
+              ? 'Image'
+              : message.content;
+        notifyIncomingMessage(message.senderName || 'New message', preview || 'New message');
+      }
     };
 
     const onJoined = (data: {
@@ -59,9 +106,10 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
       setIsConnected(true);
       setServerIP(socketService.getIP());
 
-      // Загрузить историю сообщений
-      if (data.history && data.history.length > 0) {
-        const historyMessages: Message[] = data.history
+      const history = Array.isArray(data.history) ? data.history : [];
+
+      if (history.length > 0) {
+        const historyMessages: Message[] = history
           .filter((m) => !m.deleted)
           .map((m) => ({
             id: m.id || `msg-${m.timestamp}`,
@@ -80,7 +128,8 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
         setMessages(historyMessages);
       }
 
-      const memberUsers: User[] = data.members.map((name: string) => ({
+      const members = Array.isArray(data.members) ? data.members : [];
+      const memberUsers: User[] = members.map((name: string) => ({
         id: name,
         username: name,
         isOnline: true,
@@ -88,6 +137,7 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
         joinedAt: Date.now(),
       }));
       setUsers(memberUsers);
+      registerPushTokenIfPossible();
 
       if (data.isHost) {
         setIsHost(true);
@@ -164,7 +214,7 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
       socketService.off('rooms_list', onRoomsList);
       socketService.off('disconnected', onDisconnected);
     };
-  }, []);
+  }, [registerPushTokenIfPossible]);
 
   const startHost = useCallback(async (ip: string, username: string) => {
     setConnecting(true);
