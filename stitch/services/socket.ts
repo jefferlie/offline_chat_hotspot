@@ -60,12 +60,18 @@ class WebSocketService {
     return { host, port };
   }
 
-  private buildHostCandidates(host: string): string[] {
+  private buildHostCandidates(host: string, asHost: boolean): string[] {
     const normalizedHost = host.toLowerCase();
+
     if (normalizedHost === '127.0.0.1' || normalizedHost === 'localhost') {
-      return ['127.0.0.1', 'localhost'];
+      return ['127.0.0.1', 'localhost', '[::1]'];
     }
-    return [host];
+
+    if (asHost) {
+      return [host, '127.0.0.1', 'localhost', '[::1]'];
+    }
+
+    return [host, '127.0.0.1', 'localhost'];
   }
 
   connect(ip: string, username: string, asHost: boolean = false): Promise<boolean> {
@@ -82,14 +88,16 @@ class WebSocketService {
       }
 
       if (this.socket) {
+        this.intentionalDisconnect = true;
         this.socket.close();
         this.socket = null;
+        this.intentionalDisconnect = false;
       }
 
       this.ip = parsedAddress.host;
       this.port = parsedAddress.port;
 
-      const hostCandidates = this.buildHostCandidates(parsedAddress.host);
+      const hostCandidates = this.buildHostCandidates(parsedAddress.host, asHost);
       let hostIndex = 0;
       let settled = false;
 
@@ -105,11 +113,28 @@ class WebSocketService {
         const host = hostCandidates[hostIndex++];
         const url = `ws://${host}:${this.port}`;
         let advanced = false;
+        let opened = false;
+        let connectTimeout: ReturnType<typeof setTimeout> | null = null;
 
         try {
           const candidateSocket = new WebSocket(url);
 
+          connectTimeout = setTimeout(() => {
+            if (opened || advanced || settled) return;
+            advanced = true;
+            try {
+              candidateSocket.close();
+            } catch {
+              // ignore
+            }
+            tryConnect();
+          }, 2500);
+
           candidateSocket.onopen = () => {
+            opened = true;
+            if (connectTimeout) {
+              clearTimeout(connectTimeout);
+            }
             this.socket = candidateSocket;
             this.ip = host;
             this.reconnectAttempts = 0;
@@ -131,6 +156,18 @@ class WebSocketService {
           };
 
           candidateSocket.onclose = () => {
+            if (connectTimeout) {
+              clearTimeout(connectTimeout);
+            }
+
+            if (!opened) {
+              if (!advanced && !settled) {
+                advanced = true;
+                tryConnect();
+              }
+              return;
+            }
+
             if (this.socket !== candidateSocket) {
               return;
             }
@@ -144,6 +181,9 @@ class WebSocketService {
           };
 
           candidateSocket.onerror = (error) => {
+            if (connectTimeout) {
+              clearTimeout(connectTimeout);
+            }
             console.error('WebSocket error:', error);
 
             if (this.socket === candidateSocket) {
@@ -156,6 +196,11 @@ class WebSocketService {
 
             if (!advanced && !settled) {
               advanced = true;
+              try {
+                candidateSocket.close();
+              } catch {
+                // ignore
+              }
               tryConnect();
             }
           };
