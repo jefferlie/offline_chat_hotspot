@@ -16,10 +16,7 @@
       "supportsTablet": true,
       "bundleIdentifier": "com.fluids.chatoffline",
       "infoPlist": {
-        "NSMicrophoneUsageDescription": "This app requires access to your microphone to record voice messages.",
-        "UIBackgroundModes": [
-          "remote-notification"
-        ]
+        "NSMicrophoneUsageDescription": "This app requires access to your microphone to record voice messages."
       }
     },
     "android": {

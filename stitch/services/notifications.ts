@@ -61,6 +61,10 @@ export const notifyIncomingMessage = async (senderName: string, messageText: str
 };
 
 export const getExpoPushToken = async (): Promise<string | null> => {
+  if (Platform.OS === 'ios') {
+    return null;
+  }
+
   try {
     const projectId =
       Constants.expoConfig?.extra?.eas?.projectId ??
