@@ -13,6 +13,7 @@ type HomeScreenProps = {
 const HomeScreen: React.FC<HomeScreenProps> = ({ navigation }) => {
   const LAST_USERNAME_KEY = 'fluid_chat:last_username';
   const LAST_SERVER_IP_KEY = 'fluid_chat:last_server_ip';
+  const HOST_LOOPBACK_IP = '127.0.0.1';
 
   const insets = useSafeAreaInsets();
   const [username, setUsername] = useState('');
@@ -61,13 +62,9 @@ const HomeScreen: React.FC<HomeScreenProps> = ({ navigation }) => {
       Alert.alert('Required', 'Please enter your name');
       return;
     }
-    if (!normalizedIp) {
-      Alert.alert('Required', 'Please enter your local IP to host the chat');
-      return;
-    }
 
     await persistInputs(normalizedUsername, normalizedIp);
-    navigation.navigate('Host', { username: normalizedUsername, serverIP: normalizedIp });
+    navigation.navigate('Host', { username: normalizedUsername, serverIP: HOST_LOOPBACK_IP });
   };
 
   const handleJoin = async () => {
@@ -117,7 +114,7 @@ const HomeScreen: React.FC<HomeScreenProps> = ({ navigation }) => {
           </View>
 
           <View style={styles.inputGroup}>
-            <Text style={styles.label}>Server IP Address</Text>
+            <Text style={styles.label}>Server IP Address (for Join)</Text>
             <TextInput
               style={styles.input}
               value={ipAddress}
@@ -126,6 +123,7 @@ const HomeScreen: React.FC<HomeScreenProps> = ({ navigation }) => {
               placeholderTextColor={colors.outline}
               keyboardType="numbers-and-punctuation"
             />
+            <Text style={styles.helperText}>For Host on this same phone we use localhost automatically.</Text>
           </View>
 
           <TouchableOpacity style={styles.primaryButton} onPress={handleJoin}>
@@ -231,6 +229,12 @@ const styles = StyleSheet.create({
     color: colors['on-surface'],
     borderWidth: 1,
     borderColor: `${colors['outline-variant']}33`,
+  },
+  helperText: {
+    marginTop: spacing.xs,
+    marginLeft: spacing.xs,
+    fontSize: 11,
+    color: colors['on-surface-variant'],
   },
   primaryButton: {
     flexDirection: 'row',
