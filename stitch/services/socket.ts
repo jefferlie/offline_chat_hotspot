@@ -12,53 +12,163 @@ class WebSocketService {
   private maxReconnectAttempts: number = 5;
   private reconnectDelay: number = 2000;
   private ip: string = '';
+  private port: number = 8080;
   private intentionalDisconnect: boolean = false;
+
+  private parseServerAddress(input: string): { host: string; port: number } | null {
+    let value = input.trim();
+    if (!value) return null;
+
+    value = value
+      .replace(/^wss?:\/\//i, '')
+      .replace(/^https?:\/\//i, '')
+      .split('/')[0]
+      .replace(/\s+/g, '');
+
+    if (!value) return null;
+
+    let host = value;
+    let port = 8080;
+
+    if (value.startsWith('[')) {
+      const closeBracketIndex = value.indexOf(']');
+      if (closeBracketIndex > 1) {
+        host = value.slice(1, closeBracketIndex);
+        const rest = value.slice(closeBracketIndex + 1);
+        if (rest.startsWith(':')) {
+          const parsedPort = Number(rest.slice(1));
+          if (!Number.isInteger(parsedPort) || parsedPort < 1 || parsedPort > 65535) {
+            return null;
+          }
+          port = parsedPort;
+        }
+      }
+    } else {
+      const parts = value.split(':');
+      const maybePort = parts.length > 1 ? parts[parts.length - 1] : '';
+      if (maybePort && /^\d+$/.test(maybePort)) {
+        const parsedPort = Number(maybePort);
+        if (!Number.isInteger(parsedPort) || parsedPort < 1 || parsedPort > 65535) {
+          return null;
+        }
+        port = parsedPort;
+        host = parts.slice(0, -1).join(':');
+      }
+    }
+
+    if (!host) return null;
+    return { host, port };
+  }
+
+  private buildHostCandidates(host: string): string[] {
+    const normalizedHost = host.toLowerCase();
+    if (normalizedHost === '127.0.0.1' || normalizedHost === 'localhost') {
+      return ['127.0.0.1', 'localhost'];
+    }
+    return [host];
+  }
 
   connect(ip: string, username: string, asHost: boolean = false): Promise<boolean> {
     return new Promise((resolve) => {
       this.username = username;
       this.isHost = asHost;
-      this.ip = ip;
       this.intentionalDisconnect = false;
       this.currentRoom = 'main';
 
-      const url = `ws://${ip}:8080`;
-
-      try {
-        this.socket = new WebSocket(url);
-
-        this.socket.onopen = () => {
-          this.reconnectAttempts = 0;
-          this.send({
-            type: 'join',
-            roomName: this.currentRoom,
-            userName: username,
-          });
-          resolve(true);
-        };
-
-        this.socket.onmessage = (event) => {
-          this.handleMessage(event.data);
-        };
-
-        this.socket.onclose = () => {
-          this.emit('disconnected', {});
-          if (!this.intentionalDisconnect && this.reconnectAttempts < this.maxReconnectAttempts) {
-            this.reconnectAttempts++;
-            setTimeout(() => {
-              this.connect(this.ip, this.username, this.isHost);
-            }, this.reconnectDelay);
-          }
-        };
-
-        this.socket.onerror = (error) => {
-          console.error('WebSocket error:', error);
-          resolve(false);
-        };
-      } catch (error) {
-        console.error('Connection error:', error);
+      const parsedAddress = this.parseServerAddress(ip);
+      if (!parsedAddress) {
         resolve(false);
+        return;
       }
+
+      if (this.socket) {
+        this.socket.close();
+        this.socket = null;
+      }
+
+      this.ip = parsedAddress.host;
+      this.port = parsedAddress.port;
+
+      const hostCandidates = this.buildHostCandidates(parsedAddress.host);
+      let hostIndex = 0;
+      let settled = false;
+
+      const tryConnect = () => {
+        if (hostIndex >= hostCandidates.length) {
+          if (!settled) {
+            settled = true;
+            resolve(false);
+          }
+          return;
+        }
+
+        const host = hostCandidates[hostIndex++];
+        const url = `ws://${host}:${this.port}`;
+        let advanced = false;
+
+        try {
+          const candidateSocket = new WebSocket(url);
+
+          candidateSocket.onopen = () => {
+            this.socket = candidateSocket;
+            this.ip = host;
+            this.reconnectAttempts = 0;
+            this.send({
+              type: 'join',
+              roomName: this.currentRoom,
+              userName: username,
+            });
+            if (!settled) {
+              settled = true;
+              resolve(true);
+            }
+          };
+
+          candidateSocket.onmessage = (event) => {
+            if (this.socket === candidateSocket) {
+              this.handleMessage(event.data);
+            }
+          };
+
+          candidateSocket.onclose = () => {
+            if (this.socket !== candidateSocket) {
+              return;
+            }
+            this.emit('disconnected', {});
+            if (!this.intentionalDisconnect && this.reconnectAttempts < this.maxReconnectAttempts) {
+              this.reconnectAttempts++;
+              setTimeout(() => {
+                this.connect(this.getIP(), this.username, this.isHost);
+              }, this.reconnectDelay);
+            }
+          };
+
+          candidateSocket.onerror = (error) => {
+            console.error('WebSocket error:', error);
+
+            if (this.socket === candidateSocket) {
+              if (!settled) {
+                settled = true;
+                resolve(false);
+              }
+              return;
+            }
+
+            if (!advanced && !settled) {
+              advanced = true;
+              tryConnect();
+            }
+          };
+        } catch (error) {
+          console.error('Connection error:', error);
+          if (!advanced && !settled) {
+            advanced = true;
+            tryConnect();
+          }
+        }
+      };
+
+      tryConnect();
     });
   }
 
@@ -267,7 +377,7 @@ class WebSocketService {
   }
 
   getIP(): string {
-    return this.ip;
+    return this.port === 8080 ? this.ip : `${this.ip}:${this.port}`;
   }
 
   getUsername(): string {
